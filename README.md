@@ -6,6 +6,8 @@ Real-time stock analysis dashboard with technical indicators.
 **Stock Health Dashboard** is a full-stack financial analytics web application that provides real-time technical analysis and price forecasting for publicly traded stocks. The dashboard was built to demonstrate end-to-end data science capabilities, from data acquisition and feature engineering to predictive modeling and deployment.
 <img width="1366" height="606" alt="Captura de pantalla (263)" src="https://github.com/user-attachments/assets/81308f00-6f4c-4cc2-9bc9-12d5c98e4d3c" />
 
+[You can try my app here!!](https://alecas.shinyapps.io/Stock_Health_Dashboard/)
+
 ### What It Does
 
 The application delivers four core functionalities:
