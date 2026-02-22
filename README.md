@@ -1,4 +1,4 @@
-# financial-analysis-dashboard
+# Stock-Health-Dashboard
 Real-time stock analysis dashboard with technical indicators.
 
 ## Project Description
