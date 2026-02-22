@@ -1,0 +1,438 @@
+---
+title: "Stock Analysis Report"
+subtitle: "Stock Health Dashboard — by Alejandro Castro"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    number_sections: false
+    df_print: kable
+    code_folding: hide
+params:
+  ticker:  "AAPL"
+  # Default values prevent NULL errors when testing template locally
+  df:      !r data.frame()
+  diag:    !r list()
+  fc_data: !r NULL
+---
+
+<style>
+body {
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #2c3e50;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+}
+h1 { color: #2D7DD2; border-bottom: 3px solid #00C896; padding-bottom: 10px; }
+h2 { color: #2D7DD2; margin-top: 30px; }
+h3 { color: #34495e; }
+.kpi-box {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 10px 0;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.diagnostic-box {
+  background: #f8f9fa;
+  border-left: 4px solid #00C896;
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+.warning-box {
+  background: #fff3cd;
+  border-left: 4px solid #ffc107;
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+.success-box {
+  background: #d4edda;
+  border-left: 4px solid #00C896;
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+.danger-box {
+  background: #f8d7da;
+  border-left: 4px solid #FF4C61;
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 4px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+}
+th {
+  background: #2D7DD2;
+  color: white;
+  padding: 12px;
+  text-align: left;
+}
+td {
+  padding: 10px;
+  border-bottom: 1px solid #dee2e6;
+}
+tr:hover { background: #f8f9fa; }
+.footer {
+  background: #2c3e50;
+  color: white;
+  padding: 20px;
+  margin-top: 40px;
+  border-radius: 8px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, 
+                      fig.align="center", fig.width=9, fig.height=4.5)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+
+# Validate params before rendering to prevent cryptic errors
+if (is.null(params$df) || nrow(params$df) == 0) {
+  stop("Error: No data available to generate report")
+}
+if (is.null(params$diag) || length(params$diag) == 0) {
+  stop("Error: No diagnostics available to generate report")
+}
+
+df     <- params$df
+diag   <- params$diag
+ticker <- params$ticker
+fc     <- params$fc_data
+
+VERDE <- "#00C896"
+AZUL  <- "#2D7DD2"
+ROJO  <- "#FF4C61"
+```
+
+---
+
+# `r paste('Analysis Report —', ticker)`
+
+<div class="kpi-box">
+**Ticker:** `r ticker` &nbsp;&nbsp;|&nbsp;&nbsp; 
+**Current Price:** $`r diag$price` USD &nbsp;&nbsp;|&nbsp;&nbsp; 
+**Period:** `r format(min(df$date))` to `r format(max(df$date))` (`r nrow(df)` days) &nbsp;&nbsp;|&nbsp;&nbsp; 
+**Report Date:** `r format(Sys.Date(), "%m/%d/%Y")`
+</div>
+
+---
+
+## Key Indicators
+
+```{r kpis-tabla}
+kable(data.frame(
+  Metric = c("Current Price", "1-Month Return", "3-Month Return", 
+              "RSI (14 days)", "Avg. Volume 20d"),
+  Value = c(
+    paste0("$", diag$price, " USD"),
+    if(is.na(diag$ret_1m)) "N/A" else paste0(diag$ret_1m, "%"),
+    if(is.na(diag$ret_3m)) "N/A" else paste0(diag$ret_3m, "%"),
+    if(is.na(diag$rsi_val)) "N/A" else paste0(round(diag$rsi_val, 1), " — ", diag$rsi_status),
+    paste0(diag$vol_avg, "M shares")
+  )
+), col.names = c("Indicator", "Value"))
+```
+
+---
+
+## Automated Diagnosis
+
+```{r diagnostico-html, results='asis'}
+# Box color adapts to signal: green=bullish, red=bearish, yellow=neutral
+signal_class <- if (grepl("bullish", diag$trend) && !grepl("overbought", diag$rsi_status)) {
+  "success-box"
+} else if (grepl("bearish", diag$trend)) {
+  "danger-box"
+} else {
+  "warning-box"
+}
+
+cat('<div class="', signal_class, '">\n', sep="")
+cat('<h3 style="margin-top:0;">Analysis Summary</h3>\n')
+
+cat("**Market Trend:** ")
+if (grepl("bullish", diag$trend)) {
+  cat("The stock shows a **bullish trend**. ")
+  cat("The price is above the 20 and 50-day moving averages, indicating positive momentum.<br><br>")
+} else if (grepl("bearish", diag$trend)) {
+  cat("The stock shows a **bearish trend**. ")
+  cat("The price is below the moving averages, suggesting selling pressure.<br><br>")
+} else {
+  cat("The stock is in **sideways movement**. ")
+  cat("The price oscillates without clear direction.<br><br>")
+}
+
+cat("**RSI Indicator:** ")
+if (!is.na(diag$rsi_val)) {
+  if (diag$rsi_val > 70) {
+    cat("The RSI is at **", round(diag$rsi_val, 1), " points** (overbought). ")
+    cat("The price could correct downward in the short term.<br><br>")
+  } else if (diag$rsi_val < 30) {
+    cat("The RSI is at **", round(diag$rsi_val, 1), " points** (oversold). ")
+    cat("Could represent a buying opportunity.<br><br>")
+  } else {
+    cat("The RSI is at **", round(diag$rsi_val, 1), " points** (neutral). ")
+    cat("No extreme signals of overbought or oversold conditions.<br><br>")
+  }
+} else {
+  cat("Insufficient data to calculate RSI.<br><br>")
+}
+
+cat("**Recent Performance:** ")
+if (!is.na(diag$ret_1m) && !is.na(diag$ret_3m)) {
+  cat("In the last month: **", diag$ret_1m, "%**. ", sep="")
+  cat("In the last 3 months: **", diag$ret_3m, "%**.<br><br>", sep="")
+}
+
+cat("**Conclusion:** ")
+if (grepl("bullish", diag$trend) && !grepl("overbought", diag$rsi_status)) {
+  cat("The stock shows **favorable** signals with bullish trend and neutral RSI.")
+} else if (grepl("bearish", diag$trend)) {
+  cat("The stock shows **caution** signals with bearish trend. Wait for reversal signals.")
+} else {
+  cat("The stock is in a **neutral** phase. Wait for a clearer trend.")
+}
+
+cat('</div>\n')
+```
+
+---
+
+## Detailed Technical Analysis
+
+### Price Evolution
+
+```{r plot-precio, fig.height=5}
+# Filter out NA values to prevent ggplot warnings
+df_plot <- df %>% filter(!is.na(ma20))
+
+ggplot(df, aes(x = date)) +
+  geom_line(aes(y = close), color = "black", linewidth = 1) +
+  geom_line(data = df_plot, aes(y = ma20), 
+            color = "#E67E22", linewidth = 1.2, linetype = "solid") +
+  geom_line(data = df_plot %>% filter(!is.na(ma50)), aes(y = ma50), 
+            color = AZUL, linewidth = 1.2, linetype = "dashed") +
+  geom_ribbon(data = df_plot, aes(ymin = bb_lower, ymax = bb_upper),
+              fill = "#9B59B6", alpha = 0.2) +
+  labs(title = paste("Closing Price —", ticker),
+       subtitle = "With Moving Averages (MA20, MA50) and Bollinger Bands",
+       x = NULL, y = "Price (USD)") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", size = 15, color = "#2D7DD2"),
+        plot.subtitle = element_text(color = "gray40", size = 11),
+        panel.grid.minor = element_blank())
+```
+
+<div class="diagnostic-box">
+**Interpretation:**
+
+- The current price ($`r round(tail(df$close, 1), 2)`) is `r if (!is.na(tail(df$ma20[!is.na(df$ma20)], 1))) { if (tail(df$close, 1) > tail(df$ma20[!is.na(df$ma20)], 1)) "**above**" else "**below**" } else "no data available for"` the MA20.
+- The **Bollinger Bands** (shaded area in violet) show the expected volatility range.
+- The **MA20** (orange line) represents the short-term trend.
+- The **MA50** (blue dashed line) represents the medium-term trend.
+</div>
+
+---
+
+### RSI (Relative Strength Index)
+
+```{r plot-rsi, fig.height=3.5}
+df_rsi <- df %>% filter(!is.na(rsi))
+
+if (nrow(df_rsi) > 0) {
+  ggplot(df_rsi, aes(x = date, y = rsi)) +
+    geom_line(color = AZUL, linewidth = 1.2) +
+    # Standard RSI thresholds: 70 (overbought), 30 (oversold)
+    geom_hline(yintercept = 70, color = ROJO, linetype = "dashed", linewidth = 1) +
+    geom_hline(yintercept = 30, color = VERDE, linetype = "dashed", linewidth = 1) +
+    geom_hline(yintercept = 50, color = "gray60", linetype = "dotted") +
+    annotate("text", x = min(df_rsi$date), y = 75, label = "Overbought (70)",
+             hjust = 0, size = 3.5, color = ROJO, fontface = "bold") +
+    annotate("text", x = min(df_rsi$date), y = 25, label = "Oversold (30)",
+             hjust = 0, size = 3.5, color = VERDE, fontface = "bold") +
+    ylim(0, 100) +
+    labs(title = "RSI (14 periods)", x = NULL, y = "RSI") +
+    theme_minimal(base_size = 12) +
+    theme(plot.title = element_text(face = "bold", size = 14, color = "#2D7DD2"),
+          panel.grid.minor = element_blank())
+}
+```
+
+<div class="diagnostic-box">
+**Interpretation:**
+
+- The current RSI is **`r if (!is.na(diag$rsi_val)) round(diag$rsi_val, 1) else "N/A"` points**.
+- Values above 70 indicate **overbought** (possible downward correction).
+- Values below 30 indicate **oversold** (possible upward bounce).
+- This level suggests the stock is `r diag$rsi_status`.
+</div>
+
+---
+
+## Period Statistics
+
+```{r stats-table}
+stats_df <- data.frame(
+  Variable = c("Closing price", "Daily volume (millions)"),
+  N = c(sum(!is.na(df$close)), sum(!is.na(df$volume))),
+  Mean = c(round(mean(df$close, na.rm=TRUE), 2),
+            round(mean(df$volume, na.rm=TRUE) / 1e6, 2)),
+  Median = c(round(median(df$close, na.rm=TRUE), 2),
+              round(median(df$volume, na.rm=TRUE) / 1e6, 2)),
+  SD = c(round(sd(df$close, na.rm=TRUE), 2),
+         round(sd(df$volume, na.rm=TRUE) / 1e6, 2)),
+  Min = c(round(min(df$close, na.rm=TRUE), 2),
+             round(min(df$volume, na.rm=TRUE) / 1e6, 2)),
+  Max = c(round(max(df$close, na.rm=TRUE), 2),
+             round(max(df$volume, na.rm=TRUE) / 1e6, 2))
+)
+
+kable(stats_df, align='lrrrrrrr',
+      col.names = c("Variable", "N", "Mean", "Median", "SD", "Min", "Max"))
+```
+
+```{r volatility, results='asis'}
+ret_clean <- df$returns[!is.na(df$returns)]
+# Annualize volatility: daily SD * sqrt(252 trading days)
+vol_anual <- sd(ret_clean) * sqrt(252) * 100
+
+cat('<div class="diagnostic-box">\n')
+cat('<strong>Annualized Volatility:</strong> ', round(vol_anual, 1), '%<br>', sep="")
+
+# Volatility benchmarks based on typical market classifications
+if (vol_anual > 40) {
+  cat('This indicates <strong>high volatility</strong>, characteristic of growth stocks or volatile sectors.')
+} else if (vol_anual > 25) {
+  cat('This indicates <strong>moderate-high volatility</strong>, typical of tech stocks.')
+} else if (vol_anual > 15) {
+  cat('This indicates <strong>moderate volatility</strong>, within normal market range.')
+} else {
+  cat('This indicates <strong>low volatility</strong>, characteristic of stable stocks.')
+}
+cat('\n</div>\n')
+```
+
+---
+
+```{r forecast-check, include=FALSE}
+# Check if forecast was generated in the app
+has_forecast <- !is.null(fc) && nrow(fc) > 0
+```
+
+```{r forecast-section, eval=has_forecast, results='asis'}
+# Conditional section: only renders if forecast exists
+if (has_forecast) {
+  cat('## Prophet Forecast\n\n')
+  cat('Prophet is a time series model developed by Meta that automatically captures trends and seasonality.\n\n')
+}
+```
+
+```{r plot-forecast, eval=has_forecast, fig.height=5}
+if (has_forecast) {
+  max_date <- max(df$date)
+  # Only plot future predictions (dates after historical data ends)
+  fut_fc <- fc[as.Date(fc$ds) > max_date, ]
+  
+  if (nrow(fut_fc) > 0) {
+    ggplot() +
+      geom_ribbon(data = fut_fc,
+                  aes(x = as.Date(ds), ymin = yhat_lower, ymax = yhat_upper),
+                  fill = AZUL, alpha = 0.25) +
+      geom_line(data = df,
+                aes(x = date, y = close), color = "black", linewidth = 1) +
+      geom_line(data = fut_fc,
+                aes(x = as.Date(ds), y = yhat), 
+                color = AZUL, linewidth = 1.8) +
+      labs(title = paste("Prophet Forecast —", ticker),
+           subtitle = paste0("Forecast horizon: ", nrow(fut_fc), " days"),
+           x = NULL, y = "Price (USD)") +
+      theme_minimal(base_size = 12) +
+      theme(plot.title = element_text(face = "bold", size = 15, color = "#2D7DD2"),
+            plot.subtitle = element_text(color = "gray40", size = 11),
+            panel.grid.minor = element_blank())
+  }
+}
+```
+
+```{r forecast-table, eval=has_forecast}
+if (has_forecast) {
+  fut_fc <- fc[as.Date(fc$ds) > max(df$date), ]
+  
+  if (nrow(fut_fc) > 0) {
+    # Show only first and last prediction for brevity
+    forecast_summary <- data.frame(
+      Day = c("First day", "Last day"),
+      Date = format(c(head(fut_fc$ds, 1), tail(fut_fc$ds, 1)), "%m/%d/%Y"),
+      Prediction = paste0("$", round(c(head(fut_fc$yhat, 1), tail(fut_fc$yhat, 1)), 2)),
+      Lower_80 = paste0("$", round(c(head(fut_fc$yhat_lower, 1), tail(fut_fc$yhat_lower, 1)), 2)),
+      Upper_80 = paste0("$", round(c(head(fut_fc$yhat_upper, 1), tail(fut_fc$yhat_upper, 1)), 2)),
+      check.names = FALSE
+    )
+    
+    kable(forecast_summary, col.names = c("", "Date", "Prediction", "Lower 80%", "Upper 80%"))
+  }
+}
+```
+
+```{r forecast-interpretation, eval=has_forecast, results='asis'}
+if (has_forecast) {
+  fut_fc <- fc[as.Date(fc$ds) > max(df$date), ]
+  
+  if (nrow(fut_fc) > 0) {
+    current_price <- tail(df$close, 1)
+    last_pred <- tail(fut_fc$yhat, 1)
+    change_pct <- ((last_pred - current_price) / current_price) * 100
+    
+    # Dynamic box color based on predicted change magnitude and direction
+    box_class <- if (abs(change_pct) <= 3) "diagnostic-box" 
+                 else if (change_pct > 0) "success-box" 
+                 else "danger-box"
+    
+    cat('<div class="', box_class, '">\n', sep="")
+    cat('<h4 style="margin-top:0;">Model Interpretation</h4>\n')
+    cat('- Current price: <strong>$', round(current_price, 2), '</strong><br>\n', sep="")
+    cat('- Prediction in ', nrow(fut_fc), ' days: <strong>$', round(last_pred, 2), '</strong><br>\n', sep="")
+    cat('- Estimated change: <strong>', round(change_pct, 1), '%</strong><br>\n', sep="")
+    cat('- 80% confidence interval: $', round(tail(fut_fc$yhat_lower, 1), 2), 
+        ' to $', round(tail(fut_fc$yhat_upper, 1), 2), '<br>\n', sep="")
+    cat('</div>\n')
+  }
+}
+```
+
+---
+
+<div class="footer">
+
+## Legal Disclaimer
+
+**DISCLAIMER**
+
+This report was automatically generated by the **Stock Health Dashboard** for **educational and demonstration purposes only**.
+
+- This is **not financial advice** or investment recommendation.
+- Predictive models have **high uncertainty** in financial markets.
+- Past performance does not guarantee future results.
+- Consult with a professional financial advisor before investing.
+
+---
+
+**Technologies:** R · Shiny · quantmod · prophet · ggplot2
+
+**Generated:** `r format(Sys.time(), "%m/%d/%Y at %H:%M")`
+
+</div>
